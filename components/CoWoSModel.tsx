@@ -4,13 +4,19 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { LayerProps, HighlightState, ComponentType } from '../types';
 
-// Updated Dimensions for B200-style Layout (2 Large Logic Dies + 8 HBMs)
+// Updated Dimensions based on Area Calculation
+// Total Component Area = ~59.2 units
+// Target Interposer Area (1.3x) = ~77 units
+// Component Bounding Box approx: 8.9(W) x 7.4(D)
+// Interposer set to 9.6 x 8.0 = 76.8 units (Close to 1.3x target)
 const DIMS = {
-  SUBSTRATE: { w: 13, d: 13, h: 0.8 },
-  INTERPOSER: { w: 11, d: 11, h: 0.3 },
+  SUBSTRATE: { w: 12, d: 10.5, h: 0.8 }, // Adjusted to fit Interposer
+  INTERPOSER: { w: 9.6, d: 8.0, h: 0.3 },
   // Logic Dies (2 units, Top/Bottom arrangement)
+  // "Smaller dimension" of Logic is 3.6
   LOGIC: { w: 5.5, d: 3.6, h: 0.25 }, 
-  HBM: { w: 1.1, d: 1.1, h: 0.85 }, // HBM3e
+  // HBM Width = 0.4 * Logic Smaller Side (3.6 * 0.4 = 1.44)
+  HBM: { w: 1.44, d: 1.7, h: 0.85 }, 
   C4_SIZE: 0.15,
   MICRO_SIZE: 0.05,
 };
@@ -45,10 +51,14 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
   ];
 
   // HBM Positions (8 Units: 4 Left, 4 Right)
-  // Tightly packed along the sides
-  const hbmXOffset = DIMS.LOGIC.w / 2 + 0.8; 
-  // Spacing calculations for 4 units
-  const hbmSpacing = 1.25;
+  // Calculate offset based on new widths to ensure correct gap
+  // Center of Logic (0) -> Edge of Logic (w/2) -> Gap (0.25) -> Edge of HBM -> Center of HBM (w/2)
+  const hbmGap = 0.25;
+  const hbmXOffset = (DIMS.LOGIC.w / 2) + hbmGap + (DIMS.HBM.w / 2); 
+  
+  // Spacing calculations for 4 units along Z axis
+  // Increased spacing to 1.9 to accommodate larger HBM depth (1.7)
+  const hbmSpacing = 1.9;
   const hbmStartZ = -((3 * hbmSpacing) / 2); // Center the group of 4 vertically
   
   const hbmPositions: {x: number, z: number}[] = [];
@@ -63,7 +73,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
 
   // 1. C4 Bumps (Substrate <-> Interposer)
   const c4Ref = useRef<THREE.InstancedMesh>(null);
-  const c4Count = 30 * 30; 
+  const c4Count = 2500; // Approx max count
   const dummyObj = useMemo(() => new THREE.Object3D(), []);
 
   useLayoutEffect(() => {
@@ -71,8 +81,12 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
     let i = 0;
     const gridW = DIMS.INTERPOSER.w * 0.9;
     const gridD = DIMS.INTERPOSER.d * 0.9;
-    const cols = 26;
-    const rows = 26;
+    
+    // Calculate rows/cols to keep bumps proportional (approx 0.35 spacing)
+    const spacing = 0.35;
+    const cols = Math.floor(gridW / spacing);
+    const rows = Math.floor(gridD / spacing);
+    
     const stepX = gridW / cols;
     const stepZ = gridD / rows;
     
@@ -87,12 +101,18 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
         c4Ref.current.setMatrixAt(i++, dummyObj.matrix);
       }
     }
+    // Hide unused instances
+    for (let j = i; j < c4Count; j++) {
+        dummyObj.position.set(0, -1000, 0);
+        dummyObj.updateMatrix();
+        c4Ref.current.setMatrixAt(j, dummyObj.matrix);
+    }
     c4Ref.current.instanceMatrix.needsUpdate = true;
   }, [dummyObj]);
 
   // 2. Micro Bumps (Interposer <-> Dies)
   const microRef = useRef<THREE.InstancedMesh>(null);
-  const microCount = 8000; 
+  const microCount = 15000; 
 
   useLayoutEffect(() => {
     if (!microRef.current) return;
