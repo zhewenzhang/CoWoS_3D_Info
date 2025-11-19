@@ -245,26 +245,103 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
 
   });
 
+  // Substrate Layers Calculation
+  // Core takes 60% to leave room for SR layers while keeping total height constant
+  const coreHeight = DIMS.SUBSTRATE.h * 0.6; 
+  const buildupHeightTotal = DIMS.SUBSTRATE.h * 0.4; // Remaining 40%
+  const singleSideStackHeight = buildupHeightTotal / 2; // 20% top, 20% bottom
+  
+  // To show 6 Copper layers per side interspersed with dielectric, we need 12 slices.
+  // Sequence: Cu, Dielectric, Cu, Dielectric ... 
+  const innerLayerCount = 12; 
+  // We have 12 inner build-up layers + 1 outer SR layer per side
+  const totalLayersPerSide = innerLayerCount + 1; 
+  const layerHeight = singleSideStackHeight / totalLayersPerSide;
+
   return (
     <group>
-      {/* 1. ABF Substrate (Bottom) */}
-      <mesh 
+      {/* 1. ABF Substrate Stack (Bottom) */}
+      <group 
         position={[0, ySubstrate, 0]} 
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.SUBSTRATE); }}
         onPointerOut={() => onHover(null)}
       >
-        <boxGeometry args={[DIMS.SUBSTRATE.w, DIMS.SUBSTRATE.h, DIMS.SUBSTRATE.d]} />
-        <meshPhysicalMaterial 
-           color={highlights.substrate ? '#4ade80' : '#15803d'}
-           roughness={0.5}
-           metalness={0.1}
-           transparent
-           opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-        />
+        {/* Core Layer (Center) */}
+        <mesh position={[0, 0, 0]}>
+            <boxGeometry args={[DIMS.SUBSTRATE.w, coreHeight, DIMS.SUBSTRATE.d]} />
+            <meshStandardMaterial 
+               color="#8B4513"
+               roughness={0.8}
+               metalness={0.2}
+               transparent
+               opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
+            />
+        </mesh>
+
+        {/* Top Stack: Build-up Layers + SR Layer */}
+        {Array.from({ length: innerLayerCount }).map((_, i) => {
+            const yOffset = (coreHeight / 2) + (i * layerHeight) + (layerHeight / 2);
+            // Even indices = Copper, Odd = Dielectric
+            const isCopper = i % 2 === 0; 
+            return (
+                <mesh key={`top-${i}`} position={[0, yOffset, 0]}>
+                    <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
+                    <meshStandardMaterial 
+                        color={isCopper ? '#ff9f00' : '#f3f4f6'} 
+                        roughness={isCopper ? 0.3 : 0.9}
+                        metalness={isCopper ? 0.9 : 0.0}
+                        transparent
+                        opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
+                    />
+                </mesh>
+            );
+        })}
+        {/* Top Solder Resist (SR) Layer - Outermost */}
+        <mesh position={[0, (coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2), 0]}>
+            <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
+            <meshStandardMaterial 
+                color="#064e3b" // Deep Green SR
+                roughness={0.4}
+                metalness={0.1}
+                transparent
+                opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
+            />
+        </mesh>
+
+        {/* Bottom Stack: Build-up Layers + SR Layer */}
+        {Array.from({ length: innerLayerCount }).map((_, i) => {
+            // Stack outwards from core
+            const yOffset = -((coreHeight / 2) + (i * layerHeight) + (layerHeight / 2));
+            const isCopper = i % 2 === 0;
+            return (
+                <mesh key={`bottom-${i}`} position={[0, yOffset, 0]}>
+                    <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
+                    <meshStandardMaterial 
+                        color={isCopper ? '#ff9f00' : '#f3f4f6'}
+                        roughness={isCopper ? 0.3 : 0.9}
+                        metalness={isCopper ? 0.9 : 0.0}
+                        transparent
+                        opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
+                    />
+                </mesh>
+            );
+        })}
+        {/* Bottom Solder Resist (SR) Layer - Outermost */}
+        <mesh position={[0, -((coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2)), 0]}>
+            <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
+            <meshStandardMaterial 
+                color="#064e3b" // Deep Green SR
+                roughness={0.4}
+                metalness={0.1}
+                transparent
+                opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
+            />
+        </mesh>
+
         {showLabels && <Html position={[DIMS.SUBSTRATE.w/2 - 1, 0, DIMS.SUBSTRATE.d/2]} className="pointer-events-none">
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded border border-green-500 whitespace-nowrap">ABF Substrate</div>
         </Html>}
-      </mesh>
+      </group>
 
       {/* 2. C4 Bumps */}
       <instancedMesh 
