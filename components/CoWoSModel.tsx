@@ -58,7 +58,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
   const c4Ref = useRef<THREE.InstancedMesh>(null);
   const c4Count = 2500; 
 
-  // Use useEffect instead of useLayoutEffect for safer initialization in R3F/React 19
   useEffect(() => {
     if (!c4Ref.current) return;
     
@@ -84,7 +83,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
     // Hide unused instances
     for (let j = i; j < c4Count; j++) {
         dummy.position.set(0, -10000, 0);
-        dummy.scale.set(0, 0, 0); // Ensure invisible
+        dummy.scale.set(0, 0, 0); 
         dummy.updateMatrix();
         c4Ref.current.setMatrixAt(j, dummy.matrix);
     }
@@ -325,7 +324,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
       {/* 2. C4 Bumps */}
       <instancedMesh 
         ref={c4Ref} 
-        args={[null, null, c4Count]} 
+        args={[undefined, undefined, c4Count]} 
         position={[0, yC4, 0]}
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.BUMPS); }}
         onPointerOut={() => onHover(null)}
@@ -362,7 +361,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
       {/* 4. Micro Bumps */}
       <instancedMesh 
         ref={microRef} 
-        args={[null, null, microCount]} 
+        args={[undefined, undefined, microCount]} 
         position={[0, yMicro, 0]}
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.BUMPS); }}
         onPointerOut={() => onHover(null)}
@@ -388,7 +387,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
               >
                 <boxGeometry args={[DIMS.LOGIC.w, DIMS.LOGIC.h, DIMS.LOGIC.d]} />
                 <meshStandardMaterial color="#2563eb" roughness={0.2} metalness={0.4} />
-                {/* Removed occlude to prevent raycasting crashes on load */}
                 <Html position={[0, DIMS.LOGIC.h, 0]} transform distanceFactor={8}>
                    <div className="text-white text-[8px] font-bold tracking-widest bg-black/30 px-2 py-1 rounded backdrop-blur-sm border border-blue-500/30">
                      SoC Die {i+1}
@@ -426,7 +424,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showTherm
       {/* 7. Heat Particles */}
       <instancedMesh
         ref={particlesRef}
-        args={[null, null, particleCount]}
+        args={[undefined, undefined, particleCount]}
         visible={false} 
       >
          <coneGeometry args={[0.05, 0.15, 6]} />
