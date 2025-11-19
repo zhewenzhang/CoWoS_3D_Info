@@ -1,3 +1,4 @@
+
 import React, { useRef, useMemo, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
@@ -5,17 +6,10 @@ import * as THREE from 'three';
 import { LayerProps, HighlightState, ComponentType } from '../types';
 
 // Updated Dimensions based on Area Calculation
-// Total Component Area = ~59.2 units
-// Target Interposer Area (1.3x) = ~77 units
-// Component Bounding Box approx: 8.9(W) x 7.4(D)
-// Interposer set to 9.6 x 8.0 = 76.8 units (Close to 1.3x target)
 const DIMS = {
-  SUBSTRATE: { w: 12, d: 10.5, h: 0.8 }, // Adjusted to fit Interposer
+  SUBSTRATE: { w: 12, d: 10.5, h: 0.8 }, 
   INTERPOSER: { w: 9.6, d: 8.0, h: 0.3 },
-  // Logic Dies (2 units, Top/Bottom arrangement)
-  // "Smaller dimension" of Logic is 3.6
   LOGIC: { w: 5.5, d: 3.6, h: 0.25 }, 
-  // HBM Width = 0.4 * Logic Smaller Side (3.6 * 0.4 = 1.44)
   HBM: { w: 1.44, d: 1.7, h: 0.85 }, 
   C4_SIZE: 0.15,
   MICRO_SIZE: 0.05,
@@ -27,9 +21,9 @@ interface CoWoSModelProps extends LayerProps {
 }
 
 const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, showThermal, highlights, onHover }) => {
-  // Animation State
-  const logicMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const hbmMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  // --- Animation State via Group Refs (More Stable) ---
+  const logicGroupRef = useRef<THREE.Group>(null);
+  const hbmGroupRef = useRef<THREE.Group>(null);
   const particlesRef = useRef<THREE.InstancedMesh>(null);
 
   // Calculate dynamic Y positions
@@ -42,38 +36,37 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
   const yHBM = yMicro + DIMS.MICRO_SIZE + DIMS.HBM.h / 2 + (explosionFactor * 0.3);
 
   // --- Geometry Layout Calculations ---
-  
-  // Logic Die Positions (Top and Bottom split along Z axis)
   const logicGap = 0.15;
-  const logicPositions = [
-    { x: 0, z: -(DIMS.LOGIC.d / 2 + logicGap / 2) }, // Top Die (North)
-    { x: 0, z: (DIMS.LOGIC.d / 2 + logicGap / 2) }   // Bottom Die (South)
-  ];
+  const logicPositions = useMemo(() => [
+    { x: 0, z: -(DIMS.LOGIC.d / 2 + logicGap / 2) },
+    { x: 0, z: (DIMS.LOGIC.d / 2 + logicGap / 2) }
+  ], [logicGap]);
 
-  // HBM Positions (8 Units: 4 Left, 4 Right)
-  // Calculate offset based on new widths to ensure correct gap
-  // Center of Logic (0) -> Edge of Logic (w/2) -> Gap (0.25) -> Edge of HBM -> Center of HBM (w/2)
   const hbmGap = 0.25;
   const hbmXOffset = (DIMS.LOGIC.w / 2) + hbmGap + (DIMS.HBM.w / 2); 
-  
-  // Spacing calculations for 4 units along Z axis
-  // Increased spacing to 1.9 to accommodate larger HBM depth (1.7)
   const hbmSpacing = 1.9;
-  const hbmStartZ = -((3 * hbmSpacing) / 2); // Center the group of 4 vertically
+  const hbmStartZ = -((3 * hbmSpacing) / 2);
   
-  const hbmPositions: {x: number, z: number}[] = [];
-  
-  // Left Bank (-X)
-  for(let i=0; i<4; i++) hbmPositions.push({ x: -hbmXOffset, z: hbmStartZ + i * hbmSpacing });
-  // Right Bank (+X)
-  for(let i=0; i<4; i++) hbmPositions.push({ x: hbmXOffset, z: hbmStartZ + i * hbmSpacing });
+  const hbmPositions = useMemo(() => {
+    const positions: {x: number, z: number}[] = [];
+    for(let i=0; i<4; i++) positions.push({ x: -hbmXOffset, z: hbmStartZ + i * hbmSpacing });
+    for(let i=0; i<4; i++) positions.push({ x: hbmXOffset, z: hbmStartZ + i * hbmSpacing });
+    return positions;
+  }, [hbmXOffset, hbmStartZ, hbmSpacing]);
 
+  // --- Shared Materials (Optimization & Stability) ---
+  const materials = useMemo(() => ({
+    copper: new THREE.MeshStandardMaterial({ color: '#ff9f00', roughness: 0.3, metalness: 0.9 }),
+    dielectric: new THREE.MeshStandardMaterial({ color: '#f3f4f6', roughness: 0.9, metalness: 0.0 }),
+    core: new THREE.MeshStandardMaterial({ color: '#8B4513', roughness: 0.8, metalness: 0.2 }),
+    sr: new THREE.MeshStandardMaterial({ color: '#064e3b', roughness: 0.4, metalness: 0.1 }),
+    logic: new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.2, metalness: 0.4 }),
+    hbm: new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.1, metalness: 0.6 }),
+  }), []);
 
   // --- Instanced Meshes Setup ---
-
-  // 1. C4 Bumps (Substrate <-> Interposer)
   const c4Ref = useRef<THREE.InstancedMesh>(null);
-  const c4Count = 2500; // Approx max count
+  const c4Count = 2500; 
   const dummyObj = useMemo(() => new THREE.Object3D(), []);
 
   useLayoutEffect(() => {
@@ -81,27 +74,21 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
     let i = 0;
     const gridW = DIMS.INTERPOSER.w * 0.9;
     const gridD = DIMS.INTERPOSER.d * 0.9;
-    
-    // Calculate rows/cols to keep bumps proportional (approx 0.35 spacing)
     const spacing = 0.35;
     const cols = Math.floor(gridW / spacing);
     const rows = Math.floor(gridD / spacing);
-    
     const stepX = gridW / cols;
     const stepZ = gridD / rows;
     
     for (let x = 0; x <= cols; x++) {
       for (let z = 0; z <= rows; z++) {
-        // Create a void in the very center for effect
         const cx = -gridW / 2 + x * stepX;
         const cz = -gridD / 2 + z * stepZ;
-        
         dummyObj.position.set(cx, 0, cz);
         dummyObj.updateMatrix();
         c4Ref.current.setMatrixAt(i++, dummyObj.matrix);
       }
     }
-    // Hide unused instances
     for (let j = i; j < c4Count; j++) {
         dummyObj.position.set(0, -1000, 0);
         dummyObj.updateMatrix();
@@ -110,13 +97,11 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
     c4Ref.current.instanceMatrix.needsUpdate = true;
   }, [dummyObj]);
 
-  // 2. Micro Bumps (Interposer <-> Dies)
   const microRef = useRef<THREE.InstancedMesh>(null);
   const microCount = 15000; 
 
   useLayoutEffect(() => {
     if (!microRef.current) return;
-    
     let idx = 0;
     const bumpSpacing = 0.25; 
 
@@ -124,7 +109,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
     logicPositions.forEach(pos => {
         const cols = Math.floor(DIMS.LOGIC.w / bumpSpacing);
         const rows = Math.floor(DIMS.LOGIC.d / bumpSpacing);
-        
         for(let i = 0; i < cols; i++) {
             for(let j = 0; j < rows; j++) {
                 const x = pos.x - DIMS.LOGIC.w/2 + (i + 0.5) * bumpSpacing;
@@ -141,7 +125,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
     hbmPositions.forEach(pos => {
         const cols = Math.floor(DIMS.HBM.w / bumpSpacing);
         const rows = Math.floor(DIMS.HBM.d / bumpSpacing);
-
         for(let i = 0; i < cols; i++) {
             for(let j = 0; j < rows; j++) {
                 const x = pos.x - DIMS.HBM.w/2 + (i + 0.5) * bumpSpacing;
@@ -154,14 +137,12 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
         }
     });
 
-    // Cleanup unused instances
     for(let i = idx; i < microCount; i++) {
          dummyObj.scale.set(0,0,0);
          dummyObj.position.set(0, -1000, 0);
          dummyObj.updateMatrix();
          microRef.current.setMatrixAt(i, dummyObj.matrix);
     }
-
     microRef.current.instanceMatrix.needsUpdate = true;
   }, [dummyObj, logicPositions, hbmPositions]);
 
@@ -169,64 +150,76 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
   const particleCount = 150;
   const particleData = useMemo(() => {
       return new Array(particleCount).fill(0).map(() => ({
-          x: 0, // Set dynamically in loop
-          z: 0,
+          x: 0, z: 0,
           speed: 0.02 + Math.random() * 0.05,
           offset: Math.random() * 10,
-          type: Math.random() > 0.4 ? 'logic' : 'hbm' // Distribute between logic and hbm
+          type: Math.random() > 0.4 ? 'logic' : 'hbm'
       }));
   }, []);
 
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime();
 
-    // 1. Pulse Logic Die Color
-    if (logicMatRef.current) {
-        if (showThermal) {
-            const t = (Math.sin(time * 3) + 1) / 2;
-            logicMatRef.current.color.setHSL(0.02 + t * 0.03, 1.0, 0.5); 
-            logicMatRef.current.emissive.setHSL(0.02, 1.0, 0.2 + t * 0.3);
-            logicMatRef.current.emissiveIntensity = 1;
-        } else {
-            logicMatRef.current.color.set(highlights.logic ? '#60a5fa' : '#2563eb');
-            logicMatRef.current.emissive.setHex(0x000000);
-        }
+    // 1. Animate Logic Colors via Group Traversal
+    if (logicGroupRef.current) {
+        const t = (Math.sin(time * 3) + 1) / 2;
+        logicGroupRef.current.children.forEach((child) => {
+            if (child instanceof THREE.Mesh && child.material) {
+                const mat = child.material as THREE.MeshStandardMaterial;
+                if (showThermal) {
+                    mat.color.setHSL(0.02 + t * 0.03, 1.0, 0.5);
+                    mat.emissive.setHSL(0.02, 1.0, 0.2 + t * 0.3);
+                    mat.emissiveIntensity = 1;
+                } else {
+                    mat.color.set(highlights.logic ? '#60a5fa' : '#2563eb');
+                    mat.emissive.setHex(0x000000);
+                }
+                mat.opacity = (Object.values(highlights).some(v => v) && !highlights.logic) ? 0.2 : 1;
+            }
+        });
     }
 
-    // 2. Pulse HBM Color
-    if (hbmMatRef.current) {
-        if (showThermal) {
-             const t = (Math.sin(time * 2 + 1) + 1) / 2;
-             hbmMatRef.current.color.setHSL(0.1 + t * 0.05, 1.0, 0.5); 
-             hbmMatRef.current.emissive.setHSL(0.1, 1.0, 0.1 + t * 0.2);
-             hbmMatRef.current.emissiveIntensity = 0.5;
-        } else {
-            hbmMatRef.current.color.set(highlights.hbm ? '#4b5563' : '#111827');
-            hbmMatRef.current.emissive.setHex(0x000000);
-        }
+    // 2. Animate HBM Colors via Group Traversal
+    if (hbmGroupRef.current) {
+        const t = (Math.sin(time * 2 + 1) + 1) / 2;
+        hbmGroupRef.current.children.forEach((group) => {
+             // HBM is a group containing the block mesh and layer lines
+             if (group instanceof THREE.Group) {
+                const mesh = group.children[0] as THREE.Mesh; // The main HBM block
+                if (mesh && mesh.material) {
+                     const mat = mesh.material as THREE.MeshStandardMaterial;
+                     if (showThermal) {
+                         mat.color.setHSL(0.1 + t * 0.05, 1.0, 0.5);
+                         mat.emissive.setHSL(0.1, 1.0, 0.1 + t * 0.2);
+                         mat.emissiveIntensity = 0.5;
+                     } else {
+                         mat.color.set(highlights.hbm ? '#4b5563' : '#111827');
+                         mat.emissive.setHex(0x000000);
+                     }
+                     mat.opacity = (Object.values(highlights).some(v => v) && !highlights.hbm) ? 0.2 : 1;
+                }
+             }
+        });
     }
 
     // 3. Animate Heat Particles
     if (particlesRef.current) {
+        // Simply toggle visibility here, logic inside handles updates
         if (!showThermal) {
             particlesRef.current.visible = false;
         } else {
             particlesRef.current.visible = true;
-            
             particleData.forEach((p, i) => {
                  const yRel = (time * p.speed + p.offset) % 3.0; 
                  const scale = 1.0 - (yRel / 3.0); 
                  
                  let x = 0, z = 0;
-
                  if (p.type === 'logic') {
-                     // Random spot on Logic Dies
                      const dieIdx = i % 2;
                      const pos = logicPositions[dieIdx];
                      x = pos.x + (Math.random() - 0.5) * DIMS.LOGIC.w;
                      z = pos.z + (Math.random() - 0.5) * DIMS.LOGIC.d;
                  } else {
-                     // Random spot on HBMs
                      const hbmIdx = i % 8;
                      const pos = hbmPositions[hbmIdx];
                      x = pos.x + (Math.random() - 0.5) * DIMS.HBM.w;
@@ -242,100 +235,70 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
             particlesRef.current.instanceMatrix.needsUpdate = true;
         }
     }
-
   });
 
-  // Substrate Layers Calculation
-  // Core takes 60% to leave room for SR layers while keeping total height constant
+  // Helper to handle substrate opacity without cloning material every frame
+  useFrame(() => {
+      const faded = Object.values(highlights).some(v => v) && !highlights.substrate;
+      const opacity = faded ? 0.2 : 1;
+      materials.core.opacity = opacity;
+      materials.copper.opacity = opacity;
+      materials.dielectric.opacity = opacity;
+      materials.sr.opacity = opacity;
+      materials.core.transparent = true;
+      materials.copper.transparent = true;
+      materials.dielectric.transparent = true;
+      materials.sr.transparent = true;
+  });
+
+  // Substrate Layer Config
   const coreHeight = DIMS.SUBSTRATE.h * 0.6; 
-  const buildupHeightTotal = DIMS.SUBSTRATE.h * 0.4; // Remaining 40%
-  const singleSideStackHeight = buildupHeightTotal / 2; // 20% top, 20% bottom
-  
-  // To show 6 Copper layers per side interspersed with dielectric, we need 12 slices.
-  // Sequence: Cu, Dielectric, Cu, Dielectric ... 
+  const buildupHeightTotal = DIMS.SUBSTRATE.h * 0.4; 
+  const singleSideStackHeight = buildupHeightTotal / 2; 
   const innerLayerCount = 12; 
-  // We have 12 inner build-up layers + 1 outer SR layer per side
-  const totalLayersPerSide = innerLayerCount + 1; 
-  const layerHeight = singleSideStackHeight / totalLayersPerSide;
+  const layerHeight = singleSideStackHeight / (innerLayerCount + 1);
 
   return (
     <group>
-      {/* 1. ABF Substrate Stack (Bottom) */}
+      {/* 1. ABF Substrate Stack */}
       <group 
         position={[0, ySubstrate, 0]} 
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.SUBSTRATE); }}
         onPointerOut={() => onHover(null)}
       >
-        {/* Core Layer (Center) */}
-        <mesh position={[0, 0, 0]}>
+        {/* Core */}
+        <mesh position={[0, 0, 0]} material={materials.core}>
             <boxGeometry args={[DIMS.SUBSTRATE.w, coreHeight, DIMS.SUBSTRATE.d]} />
-            <meshStandardMaterial 
-               color="#8B4513"
-               roughness={0.8}
-               metalness={0.2}
-               transparent
-               opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-            />
         </mesh>
 
-        {/* Top Stack: Build-up Layers + SR Layer */}
+        {/* Top Layers */}
         {Array.from({ length: innerLayerCount }).map((_, i) => {
             const yOffset = (coreHeight / 2) + (i * layerHeight) + (layerHeight / 2);
-            // Even indices = Copper, Odd = Dielectric
             const isCopper = i % 2 === 0; 
             return (
-                <mesh key={`top-${i}`} position={[0, yOffset, 0]}>
+                <mesh key={`top-${i}`} position={[0, yOffset, 0]} material={isCopper ? materials.copper : materials.dielectric}>
                     <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
-                    <meshStandardMaterial 
-                        color={isCopper ? '#ff9f00' : '#f3f4f6'} 
-                        roughness={isCopper ? 0.3 : 0.9}
-                        metalness={isCopper ? 0.9 : 0.0}
-                        transparent
-                        opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-                    />
                 </mesh>
             );
         })}
-        {/* Top Solder Resist (SR) Layer - Outermost */}
-        <mesh position={[0, (coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2), 0]}>
+        {/* Top SR */}
+        <mesh position={[0, (coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2), 0]} material={materials.sr}>
             <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
-            <meshStandardMaterial 
-                color="#064e3b" // Deep Green SR
-                roughness={0.4}
-                metalness={0.1}
-                transparent
-                opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-            />
         </mesh>
 
-        {/* Bottom Stack: Build-up Layers + SR Layer */}
+        {/* Bottom Layers */}
         {Array.from({ length: innerLayerCount }).map((_, i) => {
-            // Stack outwards from core
             const yOffset = -((coreHeight / 2) + (i * layerHeight) + (layerHeight / 2));
             const isCopper = i % 2 === 0;
             return (
-                <mesh key={`bottom-${i}`} position={[0, yOffset, 0]}>
+                <mesh key={`bottom-${i}`} position={[0, yOffset, 0]} material={isCopper ? materials.copper : materials.dielectric}>
                     <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
-                    <meshStandardMaterial 
-                        color={isCopper ? '#ff9f00' : '#f3f4f6'}
-                        roughness={isCopper ? 0.3 : 0.9}
-                        metalness={isCopper ? 0.9 : 0.0}
-                        transparent
-                        opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-                    />
                 </mesh>
             );
         })}
-        {/* Bottom Solder Resist (SR) Layer - Outermost */}
-        <mesh position={[0, -((coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2)), 0]}>
+        {/* Bottom SR */}
+        <mesh position={[0, -((coreHeight / 2) + (innerLayerCount * layerHeight) + (layerHeight / 2)), 0]} material={materials.sr}>
             <boxGeometry args={[DIMS.SUBSTRATE.w, layerHeight, DIMS.SUBSTRATE.d]} />
-            <meshStandardMaterial 
-                color="#064e3b" // Deep Green SR
-                roughness={0.4}
-                metalness={0.1}
-                transparent
-                opacity={Object.values(highlights).some(v => v) && !highlights.substrate ? 0.2 : 1}
-            />
         </mesh>
 
         {showLabels && <Html position={[DIMS.SUBSTRATE.w/2 - 1, 0, DIMS.SUBSTRATE.d/2]} className="pointer-events-none">
@@ -398,25 +361,17 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
         />
       </instancedMesh>
 
-      {/* 5. Logic Dies (2 Units, Top/Bottom) */}
-      <group position={[0, yDies, 0]}>
+      {/* 5. Logic Dies (2 Units) - Use Group Ref */}
+      <group ref={logicGroupRef} position={[0, yDies, 0]}>
           {logicPositions.map((pos, i) => (
              <mesh 
                 key={i}
                 position={[pos.x, 0, pos.z]}
+                material={materials.logic} // Use shared initial material
                 onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.LOGIC); }}
                 onPointerOut={() => onHover(null)}
               >
                 <boxGeometry args={[DIMS.LOGIC.w, DIMS.LOGIC.h, DIMS.LOGIC.d]} />
-                <meshStandardMaterial 
-                  ref={i === 0 ? logicMatRef : undefined} 
-                  attach="material"
-                  color='#2563eb'
-                  roughness={0.2}
-                  metalness={0.4}
-                  transparent
-                  opacity={Object.values(highlights).some(v => v) && !highlights.logic ? 0.2 : 1}
-                />
                 <Html position={[0, DIMS.LOGIC.h, 0]} transform occlude distanceFactor={8}>
                    <div className="text-white text-[8px] font-bold tracking-widest bg-black/30 px-2 py-1 rounded backdrop-blur-sm border border-blue-500/30">
                      SoC Die {i+1}
@@ -426,24 +381,16 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
           ))}
       </group>
       
-      {/* 6. HBM Stacks (8 Units, Left/Right Banks) */}
-      <group position={[0, yHBM, 0]}>
+      {/* 6. HBM Stacks (8 Units) - Use Group Ref */}
+      <group ref={hbmGroupRef} position={[0, yHBM, 0]}>
       {hbmPositions.map((pos, idx) => (
             <group key={idx} position={[pos.x, 0, pos.z]}>
                 <mesh
+                    material={materials.hbm} // Use shared initial material
                     onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.HBM); }}
                     onPointerOut={() => onHover(null)}
                 >
                     <boxGeometry args={[DIMS.HBM.w, DIMS.HBM.h, DIMS.HBM.d]} />
-                    <meshStandardMaterial 
-                        ref={idx === 0 ? hbmMatRef : undefined}
-                        attach="material"
-                        color='#111827'
-                        roughness={0.1}
-                        metalness={0.6}
-                        transparent
-                        opacity={Object.values(highlights).some(v => v) && !highlights.hbm ? 0.2 : 1}
-                    />
                 </mesh>
                 {/* HBM Layer lines */}
                 {[...Array(7)].map((_, i) => (
@@ -459,7 +406,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity, showLabels, 
       ))}
       </group>
 
-      {/* 7. Heat Particles (Visual FX) */}
+      {/* 7. Heat Particles */}
       <instancedMesh
         ref={particlesRef}
         args={[undefined, undefined, particleCount]}
