@@ -1,11 +1,11 @@
 
-import React, { useRef, useMemo, useLayoutEffect } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Html, Instance, Instances } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { LayerProps, HighlightState, ComponentType } from '../types';
 
-// Updated Dimensions based on Area Calculation
+// Updated Dimensions
 const DIMS = {
   SUBSTRATE: { w: 12, d: 10.5, h: 0.8 }, 
   INTERPOSER: { w: 9.6, d: 8.0, h: 0.3 },
@@ -20,7 +20,7 @@ interface CoWoSModelProps extends LayerProps {
   onHover: (part: ComponentType | null) => void;
 }
 
-const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacity, showLabels, showThermal, highlights, onHover }) => {
+const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, showLabels, showThermal, highlights, onHover }) => {
   // --- Animation State via Group Refs ---
   const logicGroupRef = useRef<THREE.Group>(null);
   const hbmGroupRef = useRef<THREE.Group>(null);
@@ -57,10 +57,12 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
   // --- Instanced Meshes Setup ---
   const c4Ref = useRef<THREE.InstancedMesh>(null);
   const c4Count = 2500; 
-  const dummyObj = useMemo(() => new THREE.Object3D(), []);
 
-  useLayoutEffect(() => {
+  // Use useEffect instead of useLayoutEffect for safer initialization in R3F/React 19
+  useEffect(() => {
     if (!c4Ref.current) return;
+    
+    const dummy = new THREE.Object3D();
     let i = 0;
     const gridW = DIMS.INTERPOSER.w * 0.9;
     const gridD = DIMS.INTERPOSER.d * 0.9;
@@ -74,25 +76,28 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
       for (let z = 0; z <= rows; z++) {
         const cx = -gridW / 2 + x * stepX;
         const cz = -gridD / 2 + z * stepZ;
-        dummyObj.position.set(cx, 0, cz);
-        dummyObj.updateMatrix();
-        c4Ref.current.setMatrixAt(i++, dummyObj.matrix);
+        dummy.position.set(cx, 0, cz);
+        dummy.updateMatrix();
+        c4Ref.current.setMatrixAt(i++, dummy.matrix);
       }
     }
     // Hide unused instances
     for (let j = i; j < c4Count; j++) {
-        dummyObj.position.set(0, -1000, 0);
-        dummyObj.updateMatrix();
-        c4Ref.current.setMatrixAt(j, dummyObj.matrix);
+        dummy.position.set(0, -10000, 0);
+        dummy.scale.set(0, 0, 0); // Ensure invisible
+        dummy.updateMatrix();
+        c4Ref.current.setMatrixAt(j, dummy.matrix);
     }
     c4Ref.current.instanceMatrix.needsUpdate = true;
-  }, [dummyObj]);
+  }, []);
 
   const microRef = useRef<THREE.InstancedMesh>(null);
   const microCount = 15000; 
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!microRef.current) return;
+    
+    const dummy = new THREE.Object3D();
     let idx = 0;
     const bumpSpacing = 0.25; 
 
@@ -104,10 +109,10 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
             for(let j = 0; j < rows; j++) {
                 const x = pos.x - DIMS.LOGIC.w/2 + (i + 0.5) * bumpSpacing;
                 const z = pos.z - DIMS.LOGIC.d/2 + (j + 0.5) * bumpSpacing;
-                dummyObj.position.set(x, 0, z);
-                dummyObj.scale.set(1,1,1);
-                dummyObj.updateMatrix();
-                microRef.current.setMatrixAt(idx++, dummyObj.matrix);
+                dummy.position.set(x, 0, z);
+                dummy.scale.set(1,1,1);
+                dummy.updateMatrix();
+                microRef.current!.setMatrixAt(idx++, dummy.matrix);
             }
         }
     });
@@ -120,22 +125,22 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
             for(let j = 0; j < rows; j++) {
                 const x = pos.x - DIMS.HBM.w/2 + (i + 0.5) * bumpSpacing;
                 const z = pos.z - DIMS.HBM.d/2 + (j + 0.5) * bumpSpacing;
-                dummyObj.position.set(x, 0, z);
-                dummyObj.scale.set(1,1,1);
-                dummyObj.updateMatrix();
-                microRef.current.setMatrixAt(idx++, dummyObj.matrix);
+                dummy.position.set(x, 0, z);
+                dummy.scale.set(1,1,1);
+                dummy.updateMatrix();
+                microRef.current!.setMatrixAt(idx++, dummy.matrix);
             }
         }
     });
 
     for(let i = idx; i < microCount; i++) {
-         dummyObj.scale.set(0,0,0);
-         dummyObj.position.set(0, -1000, 0);
-         dummyObj.updateMatrix();
-         microRef.current.setMatrixAt(i, dummyObj.matrix);
+         dummy.scale.set(0,0,0);
+         dummy.position.set(0, -10000, 0);
+         dummy.updateMatrix();
+         microRef.current!.setMatrixAt(i, dummy.matrix);
     }
     microRef.current.instanceMatrix.needsUpdate = true;
-  }, [dummyObj, logicPositions, hbmPositions]);
+  }, [logicPositions, hbmPositions]);
 
   // 3. Thermal Particles System
   const particleCount = 150;
@@ -147,6 +152,8 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
           type: Math.random() > 0.4 ? 'logic' : 'hbm'
       }));
   }, []);
+
+  const dummyParticle = useMemo(() => new THREE.Object3D(), []);
 
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime();
@@ -166,7 +173,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
                     mat.color.set(highlights.logic ? '#60a5fa' : '#2563eb');
                     mat.emissive.setHex(0x000000);
                 }
-                // Fix opacity handling during animation
                 const isDimmed = Object.values(highlights).some(v => v) && !highlights.logic;
                 mat.opacity = isDimmed ? 0.2 : 1;
                 mat.transparent = isDimmed;
@@ -179,7 +185,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
         const t = (Math.sin(time * 2 + 1) + 1) / 2;
         hbmGroupRef.current.children.forEach((group) => {
              if (group instanceof THREE.Group) {
-                const mesh = group.children[0] as THREE.Mesh; // The main HBM block
+                const mesh = group.children[0] as THREE.Mesh; 
                 if (mesh && mesh.material) {
                      const mat = mesh.material as THREE.MeshStandardMaterial;
                      if (showThermal) {
@@ -221,11 +227,11 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
                      z = pos.z + (Math.random() - 0.5) * DIMS.HBM.d;
                  }
 
-                 dummyObj.position.set(x, yDies + DIMS.LOGIC.h + yRel, z);
-                 dummyObj.rotation.set(time + i, time + i, 0);
-                 dummyObj.scale.set(scale * 0.12, scale * 0.12, scale * 0.12);
-                 dummyObj.updateMatrix();
-                 particlesRef.current!.setMatrixAt(i, dummyObj.matrix);
+                 dummyParticle.position.set(x, yDies + DIMS.LOGIC.h + yRel, z);
+                 dummyParticle.rotation.set(time + i, time + i, 0);
+                 dummyParticle.scale.set(scale * 0.12, scale * 0.12, scale * 0.12);
+                 dummyParticle.updateMatrix();
+                 particlesRef.current!.setMatrixAt(i, dummyParticle.matrix);
             });
             particlesRef.current.instanceMatrix.needsUpdate = true;
         }
@@ -239,7 +245,6 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
   const innerLayerCount = 12; 
   const layerHeight = singleSideStackHeight / (innerLayerCount + 1);
 
-  // Helper to determine opacity for substrate parts
   const isSubstrateDimmed = Object.values(highlights).some(v => v) && !highlights.substrate;
   const substrateOpacity = isSubstrateDimmed ? 0.2 : 1;
   const substrateTransparent = isSubstrateDimmed;
@@ -310,8 +315,9 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
               opacity={substrateOpacity} transparent={substrateTransparent}
             />
         </mesh>
-
-        {showLabels && <Html position={[DIMS.SUBSTRATE.w/2 - 1, 0, DIMS.SUBSTRATE.d/2]} className="pointer-events-none">
+        
+        {/* Safe Label without occlude */}
+        {showLabels && <Html position={[DIMS.SUBSTRATE.w/2 - 1, 0, DIMS.SUBSTRATE.d/2]} className="pointer-events-none" center>
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded border border-green-500 whitespace-nowrap">ABF Substrate</div>
         </Html>}
       </group>
@@ -319,7 +325,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
       {/* 2. C4 Bumps */}
       <instancedMesh 
         ref={c4Ref} 
-        args={[undefined, undefined, c4Count]} 
+        args={[null, null, c4Count]} 
         position={[0, yC4, 0]}
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.BUMPS); }}
         onPointerOut={() => onHover(null)}
@@ -348,7 +354,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
             transparent
             opacity={Object.values(highlights).some(v => v) && !highlights.interposer ? 0.2 : 0.9}
         />
-        {showLabels && <Html position={[DIMS.INTERPOSER.w/2, 0, -DIMS.INTERPOSER.d/2]} className="pointer-events-none">
+        {showLabels && <Html position={[DIMS.INTERPOSER.w/2, 0, -DIMS.INTERPOSER.d/2]} className="pointer-events-none" center>
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded border border-gray-400 whitespace-nowrap">Si Interposer</div>
         </Html>}
       </mesh>
@@ -356,7 +362,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
       {/* 4. Micro Bumps */}
       <instancedMesh 
         ref={microRef} 
-        args={[undefined, undefined, microCount]} 
+        args={[null, null, microCount]} 
         position={[0, yMicro, 0]}
         onPointerOver={(e) => { e.stopPropagation(); onHover(ComponentType.BUMPS); }}
         onPointerOut={() => onHover(null)}
@@ -382,7 +388,8 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
               >
                 <boxGeometry args={[DIMS.LOGIC.w, DIMS.LOGIC.h, DIMS.LOGIC.d]} />
                 <meshStandardMaterial color="#2563eb" roughness={0.2} metalness={0.4} />
-                <Html position={[0, DIMS.LOGIC.h, 0]} transform occlude distanceFactor={8}>
+                {/* Removed occlude to prevent raycasting crashes on load */}
+                <Html position={[0, DIMS.LOGIC.h, 0]} transform distanceFactor={8}>
                    <div className="text-white text-[8px] font-bold tracking-widest bg-black/30 px-2 py-1 rounded backdrop-blur-sm border border-blue-500/30">
                      SoC Die {i+1}
                    </div>
@@ -409,7 +416,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
                         <meshBasicMaterial color="#374151" />
                     </mesh>
                 ))}
-                {showLabels && idx === 0 && <Html position={[0, DIMS.HBM.h/2, 0]} className="pointer-events-none">
+                {showLabels && idx === 0 && <Html position={[0, DIMS.HBM.h/2, 0]} className="pointer-events-none" center>
                      <div className="bg-black/70 text-white text-[8px] px-1 rounded whitespace-nowrap border border-slate-600">HBM3e</div>
                 </Html>}
             </group>
@@ -419,7 +426,7 @@ const CoWoSModel: React.FC<CoWoSModelProps> = ({ exploded, opacity: globalOpacit
       {/* 7. Heat Particles */}
       <instancedMesh
         ref={particlesRef}
-        args={[undefined, undefined, particleCount]}
+        args={[null, null, particleCount]}
         visible={false} 
       >
          <coneGeometry args={[0.05, 0.15, 6]} />
