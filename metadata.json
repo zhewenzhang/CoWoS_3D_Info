@@ -1,0 +1,5 @@
+{
+  "name": "CoWoS 3D Visualizer",
+  "description": "Interactive 3D visualization of Chip-on-Wafer-on-Substrate (CoWoS) architecture showcasing ABF Substrate, Silicon Interposer, Logic Die, HBM, and interconnects.",
+  "requestFramePermissions": []
+}
